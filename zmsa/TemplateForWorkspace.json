@@ -1,0 +1,266 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"workspaceName": {
+			"type": "string",
+			"metadata": "Workspace name",
+			"defaultValue": "zmsa"
+		},
+		"zmsa-WorkspaceDefaultSqlServer_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'zmsa-WorkspaceDefaultSqlServer'",
+			"defaultValue": "Integrated Security=False;Encrypt=True;Connection Timeout=30;Data Source=tcp:zmsa.sql.azuresynapse.net,1433;Initial Catalog=@{linkedService().DBName}"
+		},
+		"zmsa-WorkspaceDefaultStorage_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://uselessdl.dfs.core.windows.net"
+		}
+	},
+	"variables": {
+		"workspaceId": "[concat('Microsoft.Synapse/workspaces/', parameters('workspaceName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('workspaceName'), '/zmsa-WorkspaceDefaultSqlServer')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"parameters": {
+					"DBName": {
+						"type": "String"
+					}
+				},
+				"annotations": [],
+				"type": "AzureSqlDW",
+				"typeProperties": {
+					"connectionString": "[parameters('zmsa-WorkspaceDefaultSqlServer_connectionString')]"
+				},
+				"connectVia": {
+					"referenceName": "AutoResolveIntegrationRuntime",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/zmsa-WorkspaceDefaultStorage')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('zmsa-WorkspaceDefaultStorage_properties_typeProperties_url')]"
+				},
+				"connectVia": {
+					"referenceName": "AutoResolveIntegrationRuntime",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/AutoResolveIntegrationRuntime')]",
+			"type": "Microsoft.Synapse/workspaces/integrationRuntimes",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"type": "Managed",
+				"typeProperties": {
+					"computeProperties": {
+						"location": "AutoResolve",
+						"dataFlowProperties": {
+							"computeType": "General",
+							"coreCount": 8,
+							"timeToLive": 0
+						}
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/WorkspaceSystemIdentity')]",
+			"type": "Microsoft.Synapse/workspaces/credentials",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"type": "ManagedIdentity",
+				"typeProperties": {}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Average Cost by City')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "SELECT \n    c.CustomerCity,\n    ROUND(AVG(f.AverageCost), 2) AS AvgOrderCost\nFROM FactOnlineOrder f\nJOIN DimCustomer c ON f.CustomerKey = c.CustomerKey\nGROUP BY c.CustomerCity\nORDER BY AvgOrderCost DESC;\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dedicated",
+						"poolName": "dedicated"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/High-Value Customers')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "SELECT \n    c.CustomerName,\n    c.CustomerCity,\n    COUNT(f.OrderID) AS OrderCount,\n    SUM(f.Votes) AS TotalVotes,\n    AVG(f.Rating) AS AvgRating\nFROM FactOnlineOrder f\nJOIN DimCustomer c ON f.CustomerKey = c.CustomerKey\nGROUP BY c.CustomerName, c.CustomerCity\nHAVING SUM(f.Votes) > 100 AND AVG(f.Rating) > 4.0\nORDER BY TotalVotes DESC;\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dedicated",
+						"poolName": "dedicated"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Top 10 Most Active Customers')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "SELECT TOP 10 \n    c.CustomerName,\n    c.CustomerCity,\n    COUNT(f.OrderID) AS TotalOrders\nFROM FactOnlineOrder f\nJOIN DimCustomer c ON f.CustomerKey = c.CustomerKey\nGROUP BY c.CustomerName, c.CustomerCity\nORDER BY TotalOrders DESC;\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dedicated",
+						"poolName": "dedicated"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Top Restaurants by Rating')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "SELECT \n    r.RestaurantName,\n    AVG(f.Rating) AS AvgRating,\n    COUNT(f.OrderID) AS TotalOrders\nFROM FactOnlineOrder f\nJOIN DimRestaurant r ON f.RestaurantKey = r.RestaurantKey\nGROUP BY r.RestaurantName\nHAVING COUNT(f.OrderID) > 5\nORDER BY AvgRating DESC;\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dedicated",
+						"poolName": "dedicated"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/create table script')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "-- ✅ 1. Staging table (non-persistent)\nCREATE TABLE stg_online_orders (\n    OrderID           VARCHAR(20),\n    CustomerID        VARCHAR(20),\n    CustomerName      VARCHAR(100),\n    CustomerCity      VARCHAR(50),\n    CustomerAddress   VARCHAR(200),\n    RestaurantID      VARCHAR(20),\n    RestaurantName    VARCHAR(100),\n    OnlineOrder       BIT,\n    AverageCost       INT,\n    Rating            FLOAT,\n    Votes             INT\n)\nWITH (\n    DISTRIBUTION = ROUND_ROBIN,\n    HEAP\n);\n\n-- ✅ 2. DimRestaurant (SCD Type 1)\nCREATE TABLE DimRestaurant (\n    RestaurantKey    INT IDENTITY(1,1) NOT NULL,\n    RestaurantID     VARCHAR(20),\n    RestaurantName   VARCHAR(100)\n)\nWITH (\n    DISTRIBUTION = HASH(RestaurantID),\n    CLUSTERED INDEX (RestaurantID)\n);\n\n-- ✅ 3. DimCustomer (SCD Type 2)\nCREATE TABLE DimCustomer (\n    CustomerKey        INT IDENTITY(1,1) NOT NULL,\n    CustomerID         VARCHAR(20),\n    CustomerName       VARCHAR(100),\n    CustomerCity       VARCHAR(50),\n    CustomerAddress    VARCHAR(200),\n    EffectiveFromDate  DATETIME,\n    EffectiveToDate    DATETIME,\n    IsCurrent          BIT\n)\nWITH (\n    DISTRIBUTION = HASH(CustomerID),\n    CLUSTERED INDEX (CustomerID)\n);\n\n-- ✅ 4. FactOnlineOrder\nCREATE TABLE FactOnlineOrder (\n    OrderID        VARCHAR(20) NOT NULL,\n    CustomerKey    INT NOT NULL,\n    RestaurantKey  INT NOT NULL,\n    AverageCost    INT,\n    Rating         FLOAT,\n    Votes          INT\n)\nWITH (\n    DISTRIBUTION = HASH(OrderID),\n    CLUSTERED INDEX (OrderID)\n);\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dedicated",
+						"poolName": "dedicated"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/create_fact_dimension')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "-- 🔹 Step 1A: Update existing restaurant names\nUPDATE DimRestaurant\nSET RestaurantName = s.RestaurantName\nFROM DimRestaurant d\nJOIN (\n    SELECT DISTINCT RestaurantID, RestaurantName\n    FROM stg_online_orders\n) s ON d.RestaurantID = s.RestaurantID\nWHERE d.RestaurantName <> s.RestaurantName;\n\n\n-- 🔹 Step 1B: Insert new restaurants (if not already present)\nINSERT INTO DimRestaurant (RestaurantID, RestaurantName)\nSELECT s.RestaurantID, s.RestaurantName\nFROM (\n    SELECT DISTINCT RestaurantID, RestaurantName\n    FROM stg_online_orders\n) s\nLEFT JOIN DimRestaurant d\n  ON s.RestaurantID = d.RestaurantID\nWHERE d.RestaurantID IS NULL;\n\n\n\n\n-- 🔹 Step 2A: DimCustomer (SCD Type 2) — Expire old records\n;\nWITH changed_customers AS (\n    SELECT DISTINCT s.CustomerID, s.CustomerName, s.CustomerCity, s.CustomerAddress\n    FROM stg_online_orders s\n    JOIN DimCustomer d\n      ON s.CustomerID = d.CustomerID\n     AND d.IsCurrent = 1\n    WHERE s.CustomerCity <> d.CustomerCity\n       OR s.CustomerAddress <> d.CustomerAddress\n)\nUPDATE d\nSET IsCurrent = 0,\n    EffectiveToDate = GETDATE()\nFROM DimCustomer d\nJOIN changed_customers c\n  ON d.CustomerID = c.CustomerID\nWHERE d.IsCurrent = 1;\n\n\n-- 🔹 Step 2B: DimCustomer (SCD Type 2) — Insert new versions\n;\nINSERT INTO DimCustomer (\n    CustomerID, CustomerName, CustomerCity, CustomerAddress,\n    EffectiveFromDate, EffectiveToDate, IsCurrent\n)\nSELECT\n    s.CustomerID, s.CustomerName, s.CustomerCity, s.CustomerAddress,\n    GETDATE(), NULL, 1\nFROM (\n    SELECT DISTINCT CustomerID, CustomerName, CustomerCity, CustomerAddress\n    FROM stg_online_orders\n) s\nLEFT JOIN DimCustomer d\n  ON s.CustomerID = d.CustomerID\n AND s.CustomerCity = d.CustomerCity\n AND s.CustomerAddress = d.CustomerAddress\n AND d.IsCurrent = 1\nWHERE d.CustomerID IS NULL;\n\n\n-- 🔹 Step 3: FactOnlineOrder (Insert only new OrderIDs)\n;\nINSERT INTO FactOnlineOrder (\n    OrderID, CustomerKey, RestaurantKey, AverageCost, Rating, Votes\n)\nSELECT\n    s.OrderID,\n    c.CustomerKey,\n    r.RestaurantKey,\n    s.AverageCost,\n    s.Rating,\n    s.Votes\nFROM stg_online_orders s\nJOIN DimCustomer c\n  ON s.CustomerID = c.CustomerID AND c.IsCurrent = 1\nJOIN DimRestaurant r\n  ON s.RestaurantID = r.RestaurantID\nLEFT JOIN FactOnlineOrder f\n  ON s.OrderID = f.OrderID\nWHERE f.OrderID IS NULL;  -- prevent duplicates\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dedicated",
+						"poolName": "dedicated"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/data ingestion script')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "-- COPY INTO stg_online_orders\n-- FROM 'https://exstdl.blob.core.windows.net/landing/zomato/online_orders_sample1.csv'\n-- WITH (\n--     FILE_TYPE = 'CSV',\n--     CREDENTIAL = (IDENTITY = 'Managed Identity'),   -- or switch to SAS if you prefer\n--     FIELDTERMINATOR = ',',\n--     ROWTERMINATOR = '0x0A',\n--     FIRSTROW = 2,        -- skip header line\n--     MAXERRORS = 0\n-- );\nTRUNCATE TABLE stg_online_orders;\n\nCOPY INTO stg_online_orders\nFROM 'https://exstdl.blob.core.windows.net/landing/zomato/zomato3.csv'\nWITH (\n    FILE_TYPE = 'CSV',\n    CREDENTIAL = (IDENTITY = 'Managed Identity'),\n    FIELDTERMINATOR = ',',\n    ROWTERMINATOR = '0x0A',\n    FIRSTROW = 2,\n    MAXERRORS = 0\n);\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dedicated",
+						"poolName": "dedicated"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/dedicated')]",
+			"type": "Microsoft.Synapse/workspaces/sqlPools",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"collation": "SQL_Latin1_General_CP1_CI_AS",
+				"maxSizeBytes": 263882790666240,
+				"annotations": []
+			},
+			"dependsOn": [],
+			"location": "northeurope"
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Dataflow1')]",
+			"type": "Microsoft.Synapse/workspaces/dataflows",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [],
+					"sinks": [],
+					"transformations": [],
+					"scriptLines": [
+						""
+					]
+				}
+			},
+			"dependsOn": []
+		}
+	]
+}
