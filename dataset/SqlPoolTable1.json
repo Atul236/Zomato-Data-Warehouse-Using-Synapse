@@ -1,0 +1,64 @@
+{
+	"name": "SqlPoolTable1",
+	"properties": {
+		"annotations": [],
+		"type": "SqlPoolTable",
+		"schema": [
+			{
+				"name": "OrderID",
+				"type": "varchar"
+			},
+			{
+				"name": "CustomerID",
+				"type": "varchar"
+			},
+			{
+				"name": "CustomerName",
+				"type": "varchar"
+			},
+			{
+				"name": "CustomerCity",
+				"type": "varchar"
+			},
+			{
+				"name": "CustomerAddress",
+				"type": "varchar"
+			},
+			{
+				"name": "RestaurantID",
+				"type": "varchar"
+			},
+			{
+				"name": "RestaurantName",
+				"type": "varchar"
+			},
+			{
+				"name": "OnlineOrder",
+				"type": "bit"
+			},
+			{
+				"name": "AverageCost",
+				"type": "int",
+				"precision": 10
+			},
+			{
+				"name": "Rating",
+				"type": "float",
+				"precision": 15
+			},
+			{
+				"name": "Votes",
+				"type": "int",
+				"precision": 10
+			}
+		],
+		"typeProperties": {
+			"schema": "dbo",
+			"table": "stg_online_orders"
+		},
+		"sqlPool": {
+			"referenceName": "dedicated",
+			"type": "SqlPoolReference"
+		}
+	}
+}
