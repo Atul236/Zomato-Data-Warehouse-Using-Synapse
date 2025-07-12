@@ -1,0 +1,17 @@
+{
+	"name": "Average Cost by City",
+	"properties": {
+		"content": {
+			"query": "SELECT \n    c.CustomerCity,\n    ROUND(AVG(f.AverageCost), 2) AS AvgOrderCost\nFROM FactOnlineOrder f\nJOIN DimCustomer c ON f.CustomerKey = c.CustomerKey\nGROUP BY c.CustomerCity\nORDER BY AvgOrderCost DESC;\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dedicated",
+				"poolName": "dedicated"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}

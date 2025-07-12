@@ -1,0 +1,17 @@
+{
+	"name": "High-Value Customers",
+	"properties": {
+		"content": {
+			"query": "SELECT \n    c.CustomerName,\n    c.CustomerCity,\n    COUNT(f.OrderID) AS OrderCount,\n    SUM(f.Votes) AS TotalVotes,\n    AVG(f.Rating) AS AvgRating\nFROM FactOnlineOrder f\nJOIN DimCustomer c ON f.CustomerKey = c.CustomerKey\nGROUP BY c.CustomerName, c.CustomerCity\nHAVING SUM(f.Votes) > 100 AND AVG(f.Rating) > 4.0\nORDER BY TotalVotes DESC;\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dedicated",
+				"poolName": "dedicated"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
