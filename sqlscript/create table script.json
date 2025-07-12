@@ -1,0 +1,17 @@
+{
+	"name": "create table script",
+	"properties": {
+		"content": {
+			"query": "-- ✅ 1. Staging table (non-persistent)\nCREATE TABLE stg_online_orders (\n    OrderID           VARCHAR(20),\n    CustomerID        VARCHAR(20),\n    CustomerName      VARCHAR(100),\n    CustomerCity      VARCHAR(50),\n    CustomerAddress   VARCHAR(200),\n    RestaurantID      VARCHAR(20),\n    RestaurantName    VARCHAR(100),\n    OnlineOrder       BIT,\n    AverageCost       INT,\n    Rating            FLOAT,\n    Votes             INT\n)\nWITH (\n    DISTRIBUTION = ROUND_ROBIN,\n    HEAP\n);\n\n-- ✅ 2. DimRestaurant (SCD Type 1)\nCREATE TABLE DimRestaurant (\n    RestaurantKey    INT IDENTITY(1,1) NOT NULL,\n    RestaurantID     VARCHAR(20),\n    RestaurantName   VARCHAR(100)\n)\nWITH (\n    DISTRIBUTION = HASH(RestaurantID),\n    CLUSTERED INDEX (RestaurantID)\n);\n\n-- ✅ 3. DimCustomer (SCD Type 2)\nCREATE TABLE DimCustomer (\n    CustomerKey        INT IDENTITY(1,1) NOT NULL,\n    CustomerID         VARCHAR(20),\n    CustomerName       VARCHAR(100),\n    CustomerCity       VARCHAR(50),\n    CustomerAddress    VARCHAR(200),\n    EffectiveFromDate  DATETIME,\n    EffectiveToDate    DATETIME,\n    IsCurrent          BIT\n)\nWITH (\n    DISTRIBUTION = HASH(CustomerID),\n    CLUSTERED INDEX (CustomerID)\n);\n\n-- ✅ 4. FactOnlineOrder\nCREATE TABLE FactOnlineOrder (\n    OrderID        VARCHAR(20) NOT NULL,\n    CustomerKey    INT NOT NULL,\n    RestaurantKey  INT NOT NULL,\n    AverageCost    INT,\n    Rating         FLOAT,\n    Votes          INT\n)\nWITH (\n    DISTRIBUTION = HASH(OrderID),\n    CLUSTERED INDEX (OrderID)\n);\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dedicated",
+				"poolName": "dedicated"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}

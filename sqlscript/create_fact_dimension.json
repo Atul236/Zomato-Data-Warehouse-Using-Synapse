@@ -1,0 +1,17 @@
+{
+	"name": "create_fact_dimension",
+	"properties": {
+		"content": {
+			"query": "-- 🔹 Step 1A: Update existing restaurant names\nUPDATE DimRestaurant\nSET RestaurantName = s.RestaurantName\nFROM DimRestaurant d\nJOIN (\n    SELECT DISTINCT RestaurantID, RestaurantName\n    FROM stg_online_orders\n) s ON d.RestaurantID = s.RestaurantID\nWHERE d.RestaurantName <> s.RestaurantName;\n\n\n-- 🔹 Step 1B: Insert new restaurants (if not already present)\nINSERT INTO DimRestaurant (RestaurantID, RestaurantName)\nSELECT s.RestaurantID, s.RestaurantName\nFROM (\n    SELECT DISTINCT RestaurantID, RestaurantName\n    FROM stg_online_orders\n) s\nLEFT JOIN DimRestaurant d\n  ON s.RestaurantID = d.RestaurantID\nWHERE d.RestaurantID IS NULL;\n\n\n\n\n-- 🔹 Step 2A: DimCustomer (SCD Type 2) — Expire old records\n;\nWITH changed_customers AS (\n    SELECT DISTINCT s.CustomerID, s.CustomerName, s.CustomerCity, s.CustomerAddress\n    FROM stg_online_orders s\n    JOIN DimCustomer d\n      ON s.CustomerID = d.CustomerID\n     AND d.IsCurrent = 1\n    WHERE s.CustomerCity <> d.CustomerCity\n       OR s.CustomerAddress <> d.CustomerAddress\n)\nUPDATE d\nSET IsCurrent = 0,\n    EffectiveToDate = GETDATE()\nFROM DimCustomer d\nJOIN changed_customers c\n  ON d.CustomerID = c.CustomerID\nWHERE d.IsCurrent = 1;\n\n\n-- 🔹 Step 2B: DimCustomer (SCD Type 2) — Insert new versions\n;\nINSERT INTO DimCustomer (\n    CustomerID, CustomerName, CustomerCity, CustomerAddress,\n    EffectiveFromDate, EffectiveToDate, IsCurrent\n)\nSELECT\n    s.CustomerID, s.CustomerName, s.CustomerCity, s.CustomerAddress,\n    GETDATE(), NULL, 1\nFROM (\n    SELECT DISTINCT CustomerID, CustomerName, CustomerCity, CustomerAddress\n    FROM stg_online_orders\n) s\nLEFT JOIN DimCustomer d\n  ON s.CustomerID = d.CustomerID\n AND s.CustomerCity = d.CustomerCity\n AND s.CustomerAddress = d.CustomerAddress\n AND d.IsCurrent = 1\nWHERE d.CustomerID IS NULL;\n\n\n-- 🔹 Step 3: FactOnlineOrder (Insert only new OrderIDs)\n;\nINSERT INTO FactOnlineOrder (\n    OrderID, CustomerKey, RestaurantKey, AverageCost, Rating, Votes\n)\nSELECT\n    s.OrderID,\n    c.CustomerKey,\n    r.RestaurantKey,\n    s.AverageCost,\n    s.Rating,\n    s.Votes\nFROM stg_online_orders s\nJOIN DimCustomer c\n  ON s.CustomerID = c.CustomerID AND c.IsCurrent = 1\nJOIN DimRestaurant r\n  ON s.RestaurantID = r.RestaurantID\nLEFT JOIN FactOnlineOrder f\n  ON s.OrderID = f.OrderID\nWHERE f.OrderID IS NULL;  -- prevent duplicates\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dedicated",
+				"poolName": "dedicated"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}

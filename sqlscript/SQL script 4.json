@@ -1,0 +1,17 @@
+{
+	"name": "SQL script 4",
+	"properties": {
+		"content": {
+			"query": "SELECT TOP (100) [CustomerKey]\n,[CustomerID]\n,[CustomerName]\n,[CustomerCity]\n,[CustomerAddress]\n,[EffectiveFromDate]\n,[EffectiveToDate]\n,[IsCurrent]\n FROM [dbo].[DimCustomer]",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dedicated",
+				"poolName": "dedicated"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}

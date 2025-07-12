@@ -1,0 +1,17 @@
+{
+	"name": "data ingestion script",
+	"properties": {
+		"content": {
+			"query": "-- COPY INTO stg_online_orders\n-- FROM 'https://exstdl.blob.core.windows.net/landing/zomato/online_orders_sample1.csv'\n-- WITH (\n--     FILE_TYPE = 'CSV',\n--     CREDENTIAL = (IDENTITY = 'Managed Identity'),   -- or switch to SAS if you prefer\n--     FIELDTERMINATOR = ',',\n--     ROWTERMINATOR = '0x0A',\n--     FIRSTROW = 2,        -- skip header line\n--     MAXERRORS = 0\n-- );\nTRUNCATE TABLE stg_online_orders;\n\nCOPY INTO stg_online_orders\nFROM 'https://exstdl.blob.core.windows.net/landing/zomato/zomato3.csv'\nWITH (\n    FILE_TYPE = 'CSV',\n    CREDENTIAL = (IDENTITY = 'Managed Identity'),\n    FIELDTERMINATOR = ',',\n    ROWTERMINATOR = '0x0A',\n    FIRSTROW = 2,\n    MAXERRORS = 0\n);\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dedicated",
+				"poolName": "dedicated"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
