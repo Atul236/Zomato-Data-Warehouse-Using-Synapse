@@ -7,10 +7,22 @@
 			"metadata": "Workspace name",
 			"defaultValue": "zmsa"
 		},
+		"AzureBlobStorage1_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'AzureBlobStorage1'"
+		},
 		"zmsa-WorkspaceDefaultSqlServer_connectionString": {
 			"type": "secureString",
 			"metadata": "Secure string for 'connectionString' of 'zmsa-WorkspaceDefaultSqlServer'",
 			"defaultValue": "Integrated Security=False;Encrypt=True;Connection Timeout=30;Data Source=tcp:zmsa.sql.azuresynapse.net,1433;Initial Catalog=@{linkedService().DBName}"
+		},
+		"AzureSynapseAnalytics1_properties_typeProperties_server": {
+			"type": "string",
+			"defaultValue": "zmsa.sql.azuresynapse.net"
+		},
+		"AzureSynapseAnalytics1_properties_typeProperties_database": {
+			"type": "string",
+			"defaultValue": "dedicated"
 		},
 		"zmsa-WorkspaceDefaultStorage_properties_typeProperties_url": {
 			"type": "string",
@@ -21,6 +33,294 @@
 		"workspaceId": "[concat('Microsoft.Synapse/workspaces/', parameters('workspaceName'))]"
 	},
 	"resources": [
+		{
+			"name": "[concat(parameters('workspaceName'), '/Pipeline 1')]",
+			"type": "Microsoft.Synapse/workspaces/pipelines",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"activities": [
+					{
+						"name": "data ingestion",
+						"type": "Copy",
+						"dependsOn": [
+							{
+								"activity": "truncate stg table",
+								"dependencyConditions": [
+									"Completed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "DelimitedTextSource",
+								"storeSettings": {
+									"type": "AzureBlobStorageReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "DelimitedTextReadSettings"
+								}
+							},
+							"sink": {
+								"type": "SqlPoolSink",
+								"allowCopyCommand": true,
+								"copyCommandSettings": {}
+							},
+							"enableStaging": false
+						},
+						"inputs": [
+							{
+								"referenceName": "zomato_source",
+								"type": "DatasetReference",
+								"parameters": {
+									"filename": "zomato4.csv"
+								}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "SqlPoolTable1",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						]
+					},
+					{
+						"name": "facts and dimension",
+						"type": "Script",
+						"dependsOn": [
+							{
+								"activity": "data ingestion",
+								"dependencyConditions": [
+									"Completed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"linkedServiceName": {
+							"referenceName": "AzureSynapseAnalytics1",
+							"type": "LinkedServiceReference"
+						},
+						"typeProperties": {
+							"scripts": [
+								{
+									"type": "Query",
+									"text": "\nUPDATE DimRestaurant\nSET RestaurantName = s.RestaurantName\nFROM DimRestaurant d\nJOIN (\n    SELECT DISTINCT RestaurantID, RestaurantName\n    FROM stg_online_orders\n) s ON d.RestaurantID = s.RestaurantID\nWHERE d.RestaurantName <> s.RestaurantName;\n\n\nINSERT INTO DimRestaurant (RestaurantID, RestaurantName)\nSELECT s.RestaurantID, s.RestaurantName\nFROM (\n    SELECT DISTINCT RestaurantID, RestaurantName\n    FROM stg_online_orders\n) s\nLEFT JOIN DimRestaurant d\n  ON s.RestaurantID = d.RestaurantID\nWHERE d.RestaurantID IS NULL;\n\n\n\n\n-- 🔹 Step 2A: DimCustomer (SCD Type 2) — Expire old records\n;\nWITH changed_customers AS (\n    SELECT DISTINCT s.CustomerID, s.CustomerName, s.CustomerCity, s.CustomerAddress\n    FROM stg_online_orders s\n    JOIN DimCustomer d\n      ON s.CustomerID = d.CustomerID\n     AND d.IsCurrent = 1\n    WHERE s.CustomerCity <> d.CustomerCity\n       OR s.CustomerAddress <> d.CustomerAddress\n)\nUPDATE d\nSET IsCurrent = 0,\n    EffectiveToDate = GETDATE()\nFROM DimCustomer d\nJOIN changed_customers c\n  ON d.CustomerID = c.CustomerID\nWHERE d.IsCurrent = 1;\n\n\n-- 🔹 Step 2B: DimCustomer (SCD Type 2) — Insert new versions\n;\nINSERT INTO DimCustomer (\n    CustomerID, CustomerName, CustomerCity, CustomerAddress,\n    EffectiveFromDate, EffectiveToDate, IsCurrent\n)\nSELECT\n    s.CustomerID, s.CustomerName, s.CustomerCity, s.CustomerAddress,\n    GETDATE(), NULL, 1\nFROM (\n    SELECT DISTINCT CustomerID, CustomerName, CustomerCity, CustomerAddress\n    FROM stg_online_orders\n) s\nLEFT JOIN DimCustomer d\n  ON s.CustomerID = d.CustomerID\n AND s.CustomerCity = d.CustomerCity\n AND s.CustomerAddress = d.CustomerAddress\n AND d.IsCurrent = 1\nWHERE d.CustomerID IS NULL;\n\n\n-- 🔹 Step 3: FactOnlineOrder (Insert only new OrderIDs)\n;\nINSERT INTO FactOnlineOrder (\n    OrderID, CustomerKey, RestaurantKey, AverageCost, Rating, Votes\n)\nSELECT\n    s.OrderID,\n    c.CustomerKey,\n    r.RestaurantKey,\n    s.AverageCost,\n    s.Rating,\n    s.Votes\nFROM stg_online_orders s\nJOIN DimCustomer c\n  ON s.CustomerID = c.CustomerID AND c.IsCurrent = 1\nJOIN DimRestaurant r\n  ON s.RestaurantID = r.RestaurantID\nLEFT JOIN FactOnlineOrder f\n  ON s.OrderID = f.OrderID\nWHERE f.OrderID IS NULL;  \n"
+								}
+							],
+							"scriptBlockExecutionTimeout": "02:00:00"
+						}
+					},
+					{
+						"name": "truncate stg table",
+						"type": "Script",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"linkedServiceName": {
+							"referenceName": "AzureSynapseAnalytics1",
+							"type": "LinkedServiceReference"
+						},
+						"typeProperties": {
+							"scripts": [
+								{
+									"type": "Query",
+									"text": "TRUNCATE TABLE stg_online_orders"
+								}
+							],
+							"scriptBlockExecutionTimeout": "02:00:00"
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/datasets/zomato_source')]",
+				"[concat(variables('workspaceId'), '/datasets/SqlPoolTable1')]",
+				"[concat(variables('workspaceId'), '/linkedServices/AzureSynapseAnalytics1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/SqlPoolTable1')]",
+			"type": "Microsoft.Synapse/workspaces/datasets",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"annotations": [],
+				"type": "SqlPoolTable",
+				"schema": [
+					{
+						"name": "OrderID",
+						"type": "varchar"
+					},
+					{
+						"name": "CustomerID",
+						"type": "varchar"
+					},
+					{
+						"name": "CustomerName",
+						"type": "varchar"
+					},
+					{
+						"name": "CustomerCity",
+						"type": "varchar"
+					},
+					{
+						"name": "CustomerAddress",
+						"type": "varchar"
+					},
+					{
+						"name": "RestaurantID",
+						"type": "varchar"
+					},
+					{
+						"name": "RestaurantName",
+						"type": "varchar"
+					},
+					{
+						"name": "OnlineOrder",
+						"type": "bit"
+					},
+					{
+						"name": "AverageCost",
+						"type": "int",
+						"precision": 10
+					},
+					{
+						"name": "Rating",
+						"type": "float",
+						"precision": 15
+					},
+					{
+						"name": "Votes",
+						"type": "int",
+						"precision": 10
+					}
+				],
+				"typeProperties": {
+					"schema": "dbo",
+					"table": "stg_online_orders"
+				},
+				"sqlPool": {
+					"referenceName": "dedicated",
+					"type": "SqlPoolReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/sqlPools/dedicated')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/zomato_source')]",
+			"type": "Microsoft.Synapse/workspaces/datasets",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureBlobStorage1",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"filename": "zomato4.csv"
+					}
+				},
+				"parameters": {
+					"filename": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"fileName": {
+							"value": "@dataset().filename",
+							"type": "Expression"
+						},
+						"folderPath": "zomato",
+						"container": "landing"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\"",
+					"firstRowAsHeader": true,
+					"quoteChar": "\""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/linkedServices/AzureBlobStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/AzureBlobStorage1')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"parameters": {
+					"filename": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "AzureBlobStorage",
+				"typeProperties": {
+					"connectionString": "[parameters('AzureBlobStorage1_connectionString')]"
+				},
+				"connectVia": {
+					"referenceName": "AutoResolveIntegrationRuntime",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/AzureSynapseAnalytics1')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDW",
+				"typeProperties": {
+					"server": "[parameters('AzureSynapseAnalytics1_properties_typeProperties_server')]",
+					"database": "[parameters('AzureSynapseAnalytics1_properties_typeProperties_database')]",
+					"encrypt": "optional",
+					"trustServerCertificate": false,
+					"authenticationType": "SystemAssignedManagedIdentity"
+				},
+				"connectVia": {
+					"referenceName": "AutoResolveIntegrationRuntime",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
+			]
+		},
 		{
 			"name": "[concat(parameters('workspaceName'), '/zmsa-WorkspaceDefaultSqlServer')]",
 			"type": "Microsoft.Synapse/workspaces/linkedServices",
@@ -234,6 +534,26 @@
 			"dependsOn": []
 		},
 		{
+			"name": "[concat(parameters('workspaceName'), '/key  creds data source')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "-- master key \n-- CREATE MASTER KEY ENCRYPTION BY PASSWORD ='pw@12345'\n\n-- create credential\n\n-- create data base scoped credential attucreds\n-- WITH\n-- (\n--     identity='Managed Identity'\n-- )\n\ncreate EXTERNAL data source raw_ext_source\nwith (\nLOCATION='https://exstdl.dfs.core.windows.net/landing',\ncredential=attucreds\n)",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "attuserverless",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
 			"name": "[concat(parameters('workspaceName'), '/dedicated')]",
 			"type": "Microsoft.Synapse/workspaces/sqlPools",
 			"apiVersion": "2019-06-01-preview",
@@ -244,23 +564,6 @@
 			},
 			"dependsOn": [],
 			"location": "northeurope"
-		},
-		{
-			"name": "[concat(parameters('workspaceName'), '/Dataflow1')]",
-			"type": "Microsoft.Synapse/workspaces/dataflows",
-			"apiVersion": "2019-06-01-preview",
-			"properties": {
-				"type": "MappingDataFlow",
-				"typeProperties": {
-					"sources": [],
-					"sinks": [],
-					"transformations": [],
-					"scriptLines": [
-						""
-					]
-				}
-			},
-			"dependsOn": []
 		}
 	]
 }
