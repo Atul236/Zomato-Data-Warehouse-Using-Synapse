@@ -1,0 +1,17 @@
+{
+	"name": "key  creds data source",
+	"properties": {
+		"content": {
+			"query": "-- master key \n-- CREATE MASTER KEY ENCRYPTION BY PASSWORD ='pw@12345'\n\n-- create credential\n\n-- create data base scoped credential attucreds\n-- WITH\n-- (\n--     identity='Managed Identity'\n-- )\n\ncreate EXTERNAL data source raw_ext_source\nwith (\nLOCATION='https://exstdl.dfs.core.windows.net/landing',\ncredential=attucreds\n)",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "attuserverless",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
